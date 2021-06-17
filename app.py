@@ -105,6 +105,9 @@ def tobs():
 
 @app.route("/api/v1.0/<start>")
 def summarize_temp_after_date(start):
+    # Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
+    # When given the start only, calculate `TMIN`, `TAVG`, and `TMAX` for all dates greater than and equal to the start date.
+
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
@@ -114,8 +117,8 @@ def summarize_temp_after_date(start):
     # convert string date to datetime date
     recent_date = dt.datetime.strptime(recent_date_str, "%Y-%m-%d").date()
 
-    """Return min, max, and average temperatures after specifified date (inclusive)"""
-    #format start date as datetime date
+    
+    #format start date 
     start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
     
     # Query data
@@ -138,10 +141,14 @@ def summarize_temp_after_date(start):
 
 @app.route("/api/v1.0/<start>/<end>")
 def summarize_temp_between_dates(start, end):
+
+    #Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
+    #When given the start and the end date, calculate the `TMIN`, `TAVG`, and `TMAX` for dates between the start and end date inclusive.
+
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
-    """Return min, max, and average temperatures between specifified dates (inclusive)"""
+    
     #format start date as datetime date
     start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
     end_date = dt.datetime.strptime(end, "%Y-%m-%d").date()
