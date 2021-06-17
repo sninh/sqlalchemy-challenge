@@ -4,7 +4,7 @@ import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
-
+import datetime as dt
 from flask import Flask, jsonify
 
 
@@ -15,12 +15,13 @@ engine = create_engine("sqlite:///hawaii.sqlite")
 
 # reflect an existing database into a new model
 Base = automap_base()
+
 # reflect the tables
 Base.prepare(engine, reflect=True)
 
 # Save reference to the table
-measurement = Base.classes.measurement
-station = Base.classes.station
+Measurement = Base.classes.measurement
+Station = Base.classes.station
 
 #################################################
 # Flask Setup
@@ -40,9 +41,10 @@ def welcome():
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end>"
-        f"Note: replace 'start' and 'end' with your query dates in the 'YYYY-MM-DD' format" 
+        f"/api/v1.0/start<br/>"
+        f"/api/v1.0/start/end<br/>"
+        f"Note: replace 'start' and 'end' with your query dates in the 'YYYY-MM-DD' format<br/>"
+        f"Example: /api/v1.0/2017-01-01/2017-12-12"
     )
 
 
@@ -53,7 +55,7 @@ def precipitation():
 
     """Retrieve precipitation data"""
     # Query dates
-    precipitation_date = session.query(measurement.date, measurement.prcp).all()
+    precipitation_date = session.query(Measurement.date, Measurement.prcp).all()
 
     session.close()
 
@@ -72,7 +74,7 @@ def stations():
 
     """Retrieve station data"""
     # Query stations
-    stations = session.query(station.id, station.station, station.name).all()
+    stations = session.query(Station.name, Station.station).join(Measurement, Station.station == Measurement.station)
 
     session.close()
 
@@ -86,33 +88,81 @@ def tobs():
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
-    """Retrieve temp data from most active station"""
     # Find the most recent date in the data set.
-    recent_date_str = session.query(func.max(measurement.date)).first()[0]
-    recent_date = (dt.datetime.strptime(recent_date_str, "%Y-%m-%d")).date()
+    recent_date_str = session.query(func.max(Measurement.date)).first()[0]
+    recent_date = dt.datetime.strptime(recent_date_str, "%Y-%m-%d").date()
     one_year = recent_date - dt.timedelta(days=365)
-    active_stations = session.query(measurement.station, func.count(measurement.station)).\
-                               order_by(func.count(measurement.station).desc()).\
-                               group_by(measurement.station).all()
-    most_active_station = pd.DataFrame(session.query(measurement.tobs).\
-                                  filter((measurement.station == most_active)\
-                                          &(measurement.date>= one_year)).all()
+    most_active_station = session.query(Measurement.station, func.count(Measurement.id)).group_by(Measurement.station).order_by(func.count(Measurement.id).desc()).first()[0]
+
+    # Query temperature observations for most recent year
+    results = session.query(Measurement.date, Measurement.tobs).filter(Measurement.date >= one_year, Measurement.station == most_active_station)
+
     session.close()
 
     # Return a JSON list of temperature observations (TOBS) for the previous year.
     
-    return jsonify(most_active_station)
+    return jsonify(dict(results))
 
 @app.route("/api/v1.0/<start>")
-def starting_temp(start):
+def summarize_temp_after_date(start):
     # Create our session (link) from Python to the DB
     session = Session(engine)
 
-        # * Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
-        # * When given the start only, calculate `TMIN`, `TAVG`, and `TMAX` for all dates greater than and equal to the start date.
-        # Find the most recent date in the data set.
-        recent_date_str = session.query(func.max(measurement.date)).first()[0]
-        recent_date = (dt.datetime.strptime(recent_date_str, "%Y-%m-%d")).date()
+    # find the most recent date in the data set.
+    recent_date_str = session.query(func.max(Measurement.date)).first()[0]
 
-    if __name__ == "__main__":
+    # convert string date to datetime date
+    recent_date = dt.datetime.strptime(recent_date_str, "%Y-%m-%d").date()
+
+    """Return min, max, and average temperatures after specifified date (inclusive)"""
+    #format start date as datetime date
+    start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
+    
+    # Query data
+    results = session.query(func.max(Measurement.tobs).label('temp_max'), func.min(Measurement.tobs).label('temp_min'), func.avg(Measurement.tobs).label('temp_avg')).filter(Measurement.date >= start_date).all()
+
+    session.close()
+    
+    # Create a dictionary from the data
+    temperature_list = []
+    for temperature_max, temperature_min, temperature_avg in results:
+        temperature_dict = {}
+        temperature_dict['start_date'] = str(start_date)
+        temperature_dict['end_date'] = str(recent_date)
+        temperature_dict["temp_max"] = temperature_max
+        temperature_dict["temp_min"] = temperature_min
+        temperature_dict["temp_avg"] = round(temperature_avg,2)
+        temperature_list.append(temperature_dict)
+
+    return jsonify(temperature_list)
+
+@app.route("/api/v1.0/<start>/<end>")
+def summarize_temp_between_dates(start, end):
+    # Create our session (link) from Python to the DB
+    session = Session(engine)
+
+    """Return min, max, and average temperatures between specifified dates (inclusive)"""
+    #format start date as datetime date
+    start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
+    end_date = dt.datetime.strptime(end, "%Y-%m-%d").date()
+    
+    # Query data
+    results = session.query(func.max(Measurement.tobs).label('temp_max'), func.min(Measurement.tobs).label('temp_min'), func.avg(Measurement.tobs).label('temp_avg')).filter(Measurement.date >= start_date, Measurement.date <= end_date).all()
+
+    session.close()
+    
+    # Create a dictionary from the data
+    temperature_list = []
+    for temperature_max, temperature_min, temperature_avg in results:
+        temperature_dict = {}
+        temperature_dict["start_date"] = str(start_date)
+        temperature_dict["end_date"] = str(end_date)
+        temperature_dict["temp_max"] = temperature_max
+        temperature_dict["temp_min"] = temperature_min
+        temperature_dict["temp_avg"] = round(temperature_avg,2)
+        temperature_list.append(temperature_dict)
+
+    return jsonify(temperature_list)
+
+if __name__ == '__main__':
     app.run(debug=True)
